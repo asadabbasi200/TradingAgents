@@ -10,7 +10,7 @@ from tradingagents.reliability.retry import (
     RETRYABLE_RATE_LIMIT,
     RETRYABLE_TRANSIENT,
 )
-from reliability._fakes import ScriptedLLM
+from tests.reliability._fakes import ScriptedLLM
 
 
 class FakeRateLimit(Exception):
