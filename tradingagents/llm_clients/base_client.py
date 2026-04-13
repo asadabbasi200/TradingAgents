@@ -60,3 +60,19 @@ class BaseLLMClient(ABC):
     def validate_model(self) -> bool:
         """Validate that the model is supported by this client."""
         pass
+
+    def invoke_with_retries(self, input, config=None, **kwargs):
+        """Invoke the underlying LLM with the reliability retry wrapper.
+
+        Agent nodes should prefer this over calling get_llm().invoke() directly
+        so retries and per-call observability are consistent.
+        """
+        from tradingagents.reliability.retry import with_retries, RetryPolicy
+        policy = self.kwargs.get("retry_policy") or RetryPolicy()
+        on_retry = self.kwargs.get("on_retry")
+        llm = self.get_llm()
+        return with_retries(
+            lambda: llm.invoke(input, config=config, **kwargs),
+            policy=policy,
+            on_retry=on_retry,
+        )
