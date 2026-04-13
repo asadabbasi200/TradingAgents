@@ -60,6 +60,10 @@ class TradingAgentsGraph:
         """
         self.debug = debug
         self.config = config or DEFAULT_CONFIG
+        # Apply tier preset if set — merges preset fields into config.
+        if self.config.get("tier"):
+            from tradingagents.config.tiers import apply_tier
+            self.config = apply_tier(self.config, self.config["tier"])
         self.callbacks = callbacks or []
 
         # Update the interface's config
