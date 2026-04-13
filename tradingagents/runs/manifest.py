@@ -21,11 +21,12 @@ class RunStatus(str, Enum):
 def mint_run_id(ticker: str, trade_date: str, now: Optional[datetime] = None) -> str:
     """Generate a unique run identifier.
 
-    Format: YYYY-MM-DD_TICKER_<4-char hex suffix>
+    Format: YYYY-MM-DD_TICKER_<6-char hex suffix>. 16M combinations keep
+    collision probability negligible across a year of runs.
     """
     now = now or datetime.now(timezone.utc)
     date_str = now.strftime("%Y-%m-%d")
-    suffix = secrets.token_hex(2)
+    suffix = secrets.token_hex(3)
     return f"{date_str}_{ticker.upper()}_{suffix}"
 
 

@@ -6,8 +6,8 @@ from tradingagents.runs.manifest import mint_run_id, RunManifest, RunStatus
 
 def test_mint_run_id_format():
     rid = mint_run_id(ticker="AAPL", trade_date="2026-04-10", now=datetime(2026, 4, 13, 9, 14))
-    # Format: YYYY-MM-DD_TICKER_<4-char hex>
-    assert re.match(r"^2026-04-13_AAPL_[0-9a-f]{4}$", rid)
+    # Format: YYYY-MM-DD_TICKER_<6-char hex>
+    assert re.match(r"^2026-04-13_AAPL_[0-9a-f]{6}$", rid)
 
 
 def test_mint_run_id_uniqueness():
