@@ -86,6 +86,10 @@ def finish_run(
     status: RunStatus,
     last_completed_node: Optional[str] = None,
     error: Optional[str] = None,
+    tracker: Optional["CostTracker"] = None,
+    latencies_ms: Optional[List[float]] = None,
+    final_decision: Optional[str] = None,
+    duration_s: Optional[float] = None,
 ) -> None:
     manifest_path = ctx.run_dir / "run_manifest.json"
     update_manifest(
@@ -95,6 +99,15 @@ def finish_run(
         error=error,
     )
     ctx.emitter.emit(EventType.RUN_END, status=status.value)
+    if tracker is not None:
+        from tradingagents.runs.metrics import write_run_metrics
+        write_run_metrics(
+            path=ctx.run_dir / "run_metrics.json",
+            run_id=ctx.run_id, ticker=ctx.manifest.ticker, tier=ctx.manifest.tier,
+            duration_s=duration_s or 0, final_decision=final_decision,
+            tracker=tracker, latencies_ms=latencies_ms or [],
+            errors=[{"message": error}] if error else [],
+        )
 
 
 @dataclass
