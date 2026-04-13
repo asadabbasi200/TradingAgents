@@ -37,7 +37,9 @@ class GraphSetup:
         self.conditional_logic = conditional_logic
 
     def setup_graph(
-        self, selected_analysts=["market", "social", "news", "fundamentals"]
+        self,
+        selected_analysts=["market", "social", "news", "fundamentals"],
+        checkpointer=None,
     ):
         """Set up and compile the agent workflow graph.
 
@@ -198,4 +200,6 @@ class GraphSetup:
         workflow.add_edge("Portfolio Manager", END)
 
         # Compile and return
+        if checkpointer is not None:
+            return workflow.compile(checkpointer=checkpointer)
         return workflow.compile()

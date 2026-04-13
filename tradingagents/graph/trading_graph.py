@@ -49,6 +49,8 @@ class TradingAgentsGraph:
         debug=False,
         config: Dict[str, Any] = None,
         callbacks: Optional[List] = None,
+        run_id: Optional[str] = None,
+        checkpointer: Any = None,
     ):
         """Initialize the trading agents graph and components.
 
@@ -57,6 +59,8 @@ class TradingAgentsGraph:
             debug: Whether to run in debug mode
             config: Configuration dictionary. If None, uses default config
             callbacks: Optional list of callback handlers (e.g., for tracking LLM/tool stats)
+            run_id: Optional run identifier used as LangGraph thread_id for checkpointing
+            checkpointer: Optional LangGraph checkpointer (e.g. SqliteSaver) for resumable runs
         """
         self.debug = debug
         self.config = config or DEFAULT_CONFIG
@@ -65,6 +69,8 @@ class TradingAgentsGraph:
             from tradingagents.config.tiers import apply_tier
             self.config = apply_tier(self.config, self.config["tier"])
         self.callbacks = callbacks or []
+        self.run_id = run_id
+        self.checkpointer = checkpointer
 
         # Update the interface's config
         set_config(self.config)
@@ -135,7 +141,9 @@ class TradingAgentsGraph:
         self.log_states_dict = {}  # date to full state dict
 
         # Set up the graph
-        self.graph = self.graph_setup.setup_graph(selected_analysts)
+        self.graph = self.graph_setup.setup_graph(
+            selected_analysts, checkpointer=self.checkpointer
+        )
 
     def _get_provider_kwargs(self) -> Dict[str, Any]:
         """Get provider-specific kwargs for LLM client creation."""
@@ -205,6 +213,18 @@ class TradingAgentsGraph:
             company_name, trade_date
         )
         args = self.propagator.get_graph_args()
+
+        # If a checkpointer is attached, inject the thread_id so state can be
+        # resumed per run_id across invocations.
+        if self.checkpointer is not None and self.run_id:
+            from tradingagents.runs.checkpointer import thread_config
+            existing_config = args.get("config", {}) or {}
+            tc = thread_config(self.run_id)
+            merged_configurable = {
+                **existing_config.get("configurable", {}),
+                **tc["configurable"],
+            }
+            args["config"] = {**existing_config, "configurable": merged_configurable}
 
         if self.debug:
             # Debug mode with tracing
