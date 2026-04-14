@@ -28,6 +28,16 @@ def _content_of(msg: Any) -> str:
     return str(msg)
 
 
+def _role_of(msg: Any) -> str:
+    """Extract a role label for a message, handling dicts and LangChain BaseMessage."""
+    if isinstance(msg, dict):
+        return str(msg.get("role", "msg"))
+    # LangChain BaseMessage subclasses expose .type ("human", "ai", "system", "tool")
+    if hasattr(msg, "type"):
+        return str(getattr(msg, "type"))
+    return "msg"
+
+
 def _total_tokens(messages: List[Any]) -> int:
     return sum(estimate_tokens(_content_of(m)) for m in messages)
 
@@ -44,7 +54,7 @@ def compress_history(
     middle_messages: List[Any],
 ) -> str:
     """Call the summarizer on a list of messages, return a compact summary."""
-    joined = "\n\n".join(f"[{m.get('role', 'msg')}]: {_content_of(m)}" for m in middle_messages)
+    joined = "\n\n".join(f"[{_role_of(m)}]: {_content_of(m)}" for m in middle_messages)
     resp = summarizer_client.invoke(_SUMMARIZE_PROMPT + joined)
     if hasattr(resp, "content"):
         return resp.content

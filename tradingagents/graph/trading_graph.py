@@ -97,7 +97,24 @@ class TradingAgentsGraph:
 
         retry_policy = RetryPolicy()
         ceiling = self.config.get("per_call_input_token_ceiling")
-        budgeter = ContextBudgeter(ceiling=ceiling) if ceiling else None
+        budgeter = None
+        if ceiling and self.config.get("llm_provider", "").lower() == "anthropic":
+            # Dedicated cheap summarizer for compressing debate history.
+            # Must NOT have its own retry/budgeter to avoid recursion.
+            summarizer_llm = create_llm_client(
+                provider="anthropic",
+                model="claude-haiku-4-5",
+                api_key=self.config.get("api_key"),
+                dry_run=self.config.get("dry_run", False),
+            ).get_llm()
+            budgeter = ContextBudgeter(
+                ceiling=ceiling,
+                summarizer_client=summarizer_llm,
+                keep_last_n=4,
+            )
+        elif ceiling:
+            # Non-Anthropic provider: use truncation-only budgeter (no summarizer).
+            budgeter = ContextBudgeter(ceiling=ceiling)
         llm_kwargs["retry_policy"] = retry_policy
         if budgeter is not None:
             llm_kwargs["context_budgeter"] = budgeter

@@ -58,3 +58,48 @@ def test_summarization_failure_falls_back_to_truncation():
     # Fallback: hard truncation to system + last 2 turns, no summary inserted.
     assert len(out) == 3
     assert out[-1]["content"].startswith("turn 5:")
+
+
+def test_compress_history_handles_base_message_objects():
+    """compress_history must accept LangChain BaseMessage objects, not just dicts."""
+    from unittest.mock import MagicMock
+    from langchain_core.messages import HumanMessage, AIMessage
+    from tradingagents.reliability.budgeter import compress_history
+
+    summarizer = MagicMock()
+    summarizer.invoke.return_value = MagicMock(content="compressed summary")
+
+    msgs = [
+        HumanMessage(content="user turn 1"),
+        AIMessage(content="assistant reply 1"),
+        HumanMessage(content="user turn 2"),
+    ]
+    out = compress_history(summarizer, msgs)
+    assert out == "compressed summary"
+    summarizer.invoke.assert_called_once()
+    # The joined prompt should contain content from each message
+    prompt_arg = summarizer.invoke.call_args[0][0]
+    assert "user turn 1" in prompt_arg
+    assert "assistant reply 1" in prompt_arg
+
+
+def test_budgeter_with_base_messages_actually_compresses():
+    """End-to-end: ContextBudgeter with BaseMessage input + working summarizer compresses (not truncates)."""
+    from unittest.mock import MagicMock
+    from langchain_core.messages import SystemMessage, HumanMessage
+    from tradingagents.reliability.budgeter import ContextBudgeter
+
+    summarizer = MagicMock()
+    summarizer.invoke.return_value = MagicMock(content="COMPRESSED")
+    b = ContextBudgeter(ceiling=200, summarizer_client=summarizer, keep_last_n=1)
+
+    msgs = [SystemMessage(content="x" * 4000)]
+    for i in range(6):
+        msgs.append(HumanMessage(content=f"turn {i}: " + "y" * 2000))
+
+    out = b.ensure_under_ceiling(msgs)
+
+    summarizer.invoke.assert_called_once()  # MUST be called, not fall back to truncation
+    # The output should contain a summary message with COMPRESSED in it
+    summary_messages = [m for m in out if isinstance(m, dict) and "COMPRESSED" in m.get("content", "")]
+    assert len(summary_messages) == 1

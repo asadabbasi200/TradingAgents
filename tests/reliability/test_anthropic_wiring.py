@@ -93,3 +93,40 @@ def test_normalized_anthropic_no_retry_no_budgeter_is_passthrough(monkeypatch):
         llm.invoke([HumanMessage(content="hi")])
 
     assert len(seen) == 1
+
+
+def test_graph_wires_summarizer_into_budgeter(monkeypatch):
+    """When tier is set and provider is anthropic, the budgeter must have a summarizer client."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "dummy")
+    from unittest.mock import patch, MagicMock
+    from tradingagents.default_config import DEFAULT_CONFIG
+
+    config = DEFAULT_CONFIG.copy()
+    config["tier"] = "cheap"
+    config["dry_run"] = True
+
+    captured_kwargs = []
+    real_create = None
+
+    def capture_create(*args, **kwargs):
+        captured_kwargs.append(kwargs)
+        # Delegate to the real factory
+        return real_create(*args, **kwargs)
+
+    import tradingagents.graph.trading_graph as tg_module
+    real_create = tg_module.create_llm_client
+    monkeypatch.setattr(tg_module, "create_llm_client", capture_create)
+
+    from tradingagents.graph.trading_graph import TradingAgentsGraph
+    TradingAgentsGraph(config=config)
+
+    # Among the create_llm_client calls, there should be one for haiku-4-5 used as the summarizer
+    summarizer_calls = [k for k in captured_kwargs if k.get("model") == "claude-haiku-4-5"]
+    assert summarizer_calls, f"expected a haiku-4-5 summarizer client; saw {[k.get('model') for k in captured_kwargs]}"
+    # The summarizer must NOT have retry_policy or context_budgeter (recursion guard)
+    summ = summarizer_calls[-1]  # last one is the summarizer (deep+quick come first)
+    # Actually, all 3 calls (deep, quick, summarizer) might pass haiku-4-5 in cheap tier.
+    # The recursion guard only matters for the summarizer specifically.
+    # At minimum, at least ONE haiku call should have neither retry_policy nor context_budgeter.
+    bare_haiku = [k for k in summarizer_calls if "retry_policy" not in k and "context_budgeter" not in k]
+    assert bare_haiku, "expected at least one haiku-4-5 client constructed without retry_policy/context_budgeter (the summarizer)"
