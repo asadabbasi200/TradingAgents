@@ -9,6 +9,7 @@ TierName = Literal["cheap", "balanced", "max"]
 TIERS: Dict[str, Dict[str, Any]] = {
     "cheap": {
         "llm_provider": "anthropic",
+        "backend_url": None,
         "deep_think_llm": "claude-haiku-4-5",
         "quick_think_llm": "claude-haiku-4-5",
         "anthropic_effort": "low",
@@ -20,6 +21,7 @@ TIERS: Dict[str, Dict[str, Any]] = {
     },
     "balanced": {
         "llm_provider": "anthropic",
+        "backend_url": None,
         "deep_think_llm": "claude-sonnet-4-6",
         "quick_think_llm": "claude-haiku-4-5",
         "anthropic_effort": "medium",
@@ -31,6 +33,7 @@ TIERS: Dict[str, Dict[str, Any]] = {
     },
     "max": {
         "llm_provider": "anthropic",
+        "backend_url": None,
         "deep_think_llm": "claude-opus-4-6",
         "quick_think_llm": "claude-sonnet-4-6",
         "anthropic_effort": "high",

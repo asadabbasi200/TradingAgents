@@ -26,9 +26,15 @@ def register_pricing(model: str, input_: float, output: float, cached: float) ->
 
 
 # Seed with the three Anthropic models used by tiers. Update when prices change.
-register_pricing("claude-haiku-4-5",  input_=1.00,  output=5.00,  cached=0.10)
-register_pricing("claude-sonnet-4-6", input_=3.00,  output=15.00, cached=0.30)
-register_pricing("claude-opus-4-6",   input_=15.00, output=75.00, cached=1.50)
+# Register both the bare alias and the dated API identifier — Anthropic's API
+# returns the dated form (e.g. "claude-haiku-4-5-20251001") in response metadata,
+# so we need to look up by both shapes.
+register_pricing("claude-haiku-4-5",            input_=1.00,  output=5.00,  cached=0.10)
+register_pricing("claude-haiku-4-5-20251001",   input_=1.00,  output=5.00,  cached=0.10)
+register_pricing("claude-sonnet-4-6",           input_=3.00,  output=15.00, cached=0.30)
+register_pricing("claude-sonnet-4-6-20251001",  input_=3.00,  output=15.00, cached=0.30)
+register_pricing("claude-opus-4-6",             input_=15.00, output=75.00, cached=1.50)
+register_pricing("claude-opus-4-6-20251001",    input_=15.00, output=75.00, cached=1.50)
 
 
 @dataclass

@@ -101,12 +101,16 @@ class TradingAgentsGraph:
         if ceiling and self.config.get("llm_provider", "").lower() == "anthropic":
             # Dedicated cheap summarizer for compressing debate history.
             # Must NOT have its own retry/budgeter to avoid recursion.
-            summarizer_llm = create_llm_client(
-                provider="anthropic",
-                model="claude-haiku-4-5",
-                api_key=self.config.get("api_key"),
-                dry_run=self.config.get("dry_run", False),
-            ).get_llm()
+            # api_key is read from ANTHROPIC_API_KEY env var by ChatAnthropic
+            # itself; passing api_key=None explicitly fails Pydantic validation.
+            summ_kwargs = {
+                "provider": "anthropic",
+                "model": "claude-haiku-4-5",
+                "dry_run": self.config.get("dry_run", False),
+            }
+            if self.config.get("api_key"):
+                summ_kwargs["api_key"] = self.config["api_key"]
+            summarizer_llm = create_llm_client(**summ_kwargs).get_llm()
             budgeter = ContextBudgeter(
                 ceiling=ceiling,
                 summarizer_client=summarizer_llm,

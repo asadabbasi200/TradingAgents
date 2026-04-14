@@ -92,6 +92,11 @@ class AnthropicClient(BaseLLMClient):
             if key in self.kwargs:
                 llm_kwargs[key] = self.kwargs[key]
 
+        # Anthropic's `effort` parameter is only supported on Sonnet / Opus.
+        # Haiku rejects it with a 400 invalid_request_error, so strip it.
+        if "effort" in llm_kwargs and "haiku" in self.model.lower():
+            llm_kwargs.pop("effort")
+
         # Reliability primitives — passed to our subclass __init__, not ChatAnthropic.
         if "retry_policy" in self.kwargs:
             llm_kwargs["retry_policy"] = self.kwargs["retry_policy"]
