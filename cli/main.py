@@ -926,7 +926,14 @@ def format_tool_args(args, max_length=80) -> str:
         return result[:max_length - 3] + "..."
     return result
 
-def run_analysis():
+def run_analysis(tier: Optional[str] = None, resume: Optional[str] = None, dry_run: bool = False):
+    # TODO(task-13/14): if resume is set, skip interactive prompts and call resume_run
+    if resume:
+        console.print(
+            f"[yellow]--resume not yet wired to run_analysis interactive flow; "
+            f"will be addressed in a follow-up task[/yellow]"
+        )
+
     # First get all user selections
     selections = get_user_selections()
 
@@ -943,6 +950,14 @@ def run_analysis():
     config["openai_reasoning_effort"] = selections.get("openai_reasoning_effort")
     config["anthropic_effort"] = selections.get("anthropic_effort")
     config["output_language"] = selections.get("output_language", "English")
+
+    # Apply cost tier preset (cheap/balanced/max) if provided via CLI flag
+    if tier:
+        from tradingagents.config.tiers import apply_tier
+        config = apply_tier(config, tier)
+    # Dry-run: sets a config flag; the stub LLM factory wiring lands in task 15
+    if dry_run:
+        config["dry_run"] = True
 
     # Create stats callback handler for tracking LLM/tool calls
     stats_handler = StatsCallbackHandler()
@@ -1197,8 +1212,41 @@ def run_analysis():
 
 
 @app.command()
-def analyze():
-    run_analysis()
+def analyze(
+    tier: Optional[str] = typer.Option(
+        None, "--tier", help="Cost tier: cheap, balanced, or max"
+    ),
+    resume: Optional[str] = typer.Option(
+        None, "--resume", help="Resume a prior interrupted run_id (or 'last')"
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Use stub LLM; no API calls"
+    ),
+):
+    run_analysis(tier=tier, resume=resume, dry_run=dry_run)
+
+
+@app.command("list-runs")
+def list_runs_cmd():
+    """Show recent runs from the results/ directory."""
+    from tradingagents.runs.orchestrator import list_runs
+
+    rows = list_runs("results")
+    if not rows:
+        typer.echo("No runs found.")
+        return
+    table = Table(title="Recent runs")
+    table.add_column("run_id")
+    table.add_column("ticker")
+    table.add_column("tier")
+    table.add_column("status")
+    table.add_column("started_at")
+    table.add_column("cost_usd", justify="right")
+    for r in rows[:30]:
+        table.add_row(
+            r.run_id, r.ticker, r.tier, r.status, r.started_at, f"${r.cost_usd:.2f}"
+        )
+    Console().print(table)
 
 
 if __name__ == "__main__":

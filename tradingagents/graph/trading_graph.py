@@ -49,6 +49,8 @@ class TradingAgentsGraph:
         debug=False,
         config: Dict[str, Any] = None,
         callbacks: Optional[List] = None,
+        run_id: Optional[str] = None,
+        checkpointer: Any = None,
     ):
         """Initialize the trading agents graph and components.
 
@@ -57,10 +59,18 @@ class TradingAgentsGraph:
             debug: Whether to run in debug mode
             config: Configuration dictionary. If None, uses default config
             callbacks: Optional list of callback handlers (e.g., for tracking LLM/tool stats)
+            run_id: Optional run identifier used as LangGraph thread_id for checkpointing
+            checkpointer: Optional LangGraph checkpointer (e.g. SqliteSaver) for resumable runs
         """
         self.debug = debug
         self.config = config or DEFAULT_CONFIG
+        # Apply tier preset if set — merges preset fields into config.
+        if self.config.get("tier"):
+            from tradingagents.config.tiers import apply_tier
+            self.config = apply_tier(self.config, self.config["tier"])
         self.callbacks = callbacks or []
+        self.run_id = run_id
+        self.checkpointer = checkpointer
 
         # Update the interface's config
         set_config(self.config)
@@ -76,16 +86,53 @@ class TradingAgentsGraph:
         if self.callbacks:
             llm_kwargs["callbacks"] = self.callbacks
 
+        # Wire reliability primitives (retry wrapper + context budgeter) into the
+        # LLM client kwargs so NormalizedChatAnthropic.invoke uses them on every
+        # call. Defaults are safe for production; budgeter is only enabled when
+        # a ceiling is configured.
+        from tradingagents.reliability.retry import RetryPolicy
+        from tradingagents.reliability.budgeter import ContextBudgeter
+
+        retry_policy = RetryPolicy()
+        ceiling = self.config.get("per_call_input_token_ceiling")
+        budgeter = None
+        if ceiling and self.config.get("llm_provider", "").lower() == "anthropic":
+            # Dedicated cheap summarizer for compressing debate history.
+            # Must NOT have its own retry/budgeter to avoid recursion.
+            # api_key is read from ANTHROPIC_API_KEY env var by ChatAnthropic
+            # itself; passing api_key=None explicitly fails Pydantic validation.
+            summ_kwargs = {
+                "provider": "anthropic",
+                "model": "claude-haiku-4-5",
+                "dry_run": self.config.get("dry_run", False),
+            }
+            if self.config.get("api_key"):
+                summ_kwargs["api_key"] = self.config["api_key"]
+            summarizer_llm = create_llm_client(**summ_kwargs).get_llm()
+            budgeter = ContextBudgeter(
+                ceiling=ceiling,
+                summarizer_client=summarizer_llm,
+                keep_last_n=4,
+            )
+        elif ceiling:
+            # Non-Anthropic provider: use truncation-only budgeter (no summarizer).
+            budgeter = ContextBudgeter(ceiling=ceiling)
+        llm_kwargs["retry_policy"] = retry_policy
+        if budgeter is not None:
+            llm_kwargs["context_budgeter"] = budgeter
+
         deep_client = create_llm_client(
             provider=self.config["llm_provider"],
             model=self.config["deep_think_llm"],
             base_url=self.config.get("backend_url"),
+            dry_run=self.config.get("dry_run", False),
             **llm_kwargs,
         )
         quick_client = create_llm_client(
             provider=self.config["llm_provider"],
             model=self.config["quick_think_llm"],
             base_url=self.config.get("backend_url"),
+            dry_run=self.config.get("dry_run", False),
             **llm_kwargs,
         )
 
@@ -129,7 +176,9 @@ class TradingAgentsGraph:
         self.log_states_dict = {}  # date to full state dict
 
         # Set up the graph
-        self.graph = self.graph_setup.setup_graph(selected_analysts)
+        self.graph = self.graph_setup.setup_graph(
+            selected_analysts, checkpointer=self.checkpointer
+        )
 
     def _get_provider_kwargs(self) -> Dict[str, Any]:
         """Get provider-specific kwargs for LLM client creation."""
@@ -199,6 +248,18 @@ class TradingAgentsGraph:
             company_name, trade_date
         )
         args = self.propagator.get_graph_args()
+
+        # If a checkpointer is attached, inject the thread_id so state can be
+        # resumed per run_id across invocations.
+        if self.checkpointer is not None and self.run_id:
+            from tradingagents.runs.checkpointer import thread_config
+            existing_config = args.get("config", {}) or {}
+            tc = thread_config(self.run_id)
+            merged_configurable = {
+                **existing_config.get("configurable", {}),
+                **tc["configurable"],
+            }
+            args["config"] = {**existing_config, "configurable": merged_configurable}
 
         if self.debug:
             # Debug mode with tracing

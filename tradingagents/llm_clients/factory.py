@@ -32,6 +32,16 @@ def create_llm_client(
     Raises:
         ValueError: If provider is not supported
     """
+    if kwargs.pop("dry_run", False):
+        from tradingagents.reliability.dry_run import DryRunLLM
+
+        class _DryClient(BaseLLMClient):
+            def get_llm(self):
+                return DryRunLLM()
+            def validate_model(self) -> bool:
+                return True
+        return _DryClient(model, base_url, **kwargs)
+
     provider_lower = provider.lower()
 
     if provider_lower in _OPENAI_COMPATIBLE:
