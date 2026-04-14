@@ -88,6 +88,20 @@ class TradingAgentsGraph:
         if self.callbacks:
             llm_kwargs["callbacks"] = self.callbacks
 
+        # Wire reliability primitives (retry wrapper + context budgeter) into the
+        # LLM client kwargs so NormalizedChatAnthropic.invoke uses them on every
+        # call. Defaults are safe for production; budgeter is only enabled when
+        # a ceiling is configured.
+        from tradingagents.reliability.retry import RetryPolicy
+        from tradingagents.reliability.budgeter import ContextBudgeter
+
+        retry_policy = RetryPolicy()
+        ceiling = self.config.get("per_call_input_token_ceiling")
+        budgeter = ContextBudgeter(ceiling=ceiling) if ceiling else None
+        llm_kwargs["retry_policy"] = retry_policy
+        if budgeter is not None:
+            llm_kwargs["context_budgeter"] = budgeter
+
         deep_client = create_llm_client(
             provider=self.config["llm_provider"],
             model=self.config["deep_think_llm"],

@@ -38,18 +38,40 @@ _PASSTHROUGH_KWARGS = (
 
 
 class NormalizedChatAnthropic(ChatAnthropic):
-    """ChatAnthropic with normalized content output and prompt caching.
+    """ChatAnthropic with normalized content output, prompt caching, retry, and budgeting.
 
     Claude models with extended thinking or tool use return content as a
     list of typed blocks. This normalizes to string for consistent
     downstream handling. Prompt caching is injected on the system message
-    so stable prefixes are discounted on subsequent calls.
+    so stable prefixes are discounted on subsequent calls. When a
+    ``retry_policy`` is supplied, the underlying invoke is wrapped in
+    ``with_retries`` for transparent backoff. When a ``context_budgeter``
+    is supplied, oversized message histories are compressed before the
+    call.
     """
 
+    def __init__(self, *, retry_policy=None, context_budgeter=None, **data):
+        super().__init__(**data)
+        # Pydantic BaseModel rejects plain instance attrs; bypass via object.__setattr__.
+        object.__setattr__(self, "_retry_policy", retry_policy)
+        object.__setattr__(self, "_context_budgeter", context_budgeter)
+
     def invoke(self, input, config=None, **kwargs):
+        from tradingagents.reliability.retry import with_retries
+
         if isinstance(input, list):
+            if getattr(self, "_context_budgeter", None) is not None:
+                input = self._context_budgeter.ensure_under_ceiling(input)
             input = inject_cache_markers(input)
-        return normalize_content(super().invoke(input, config, **kwargs))
+
+        def _do_invoke():
+            return normalize_content(
+                super(NormalizedChatAnthropic, self).invoke(input, config, **kwargs)
+            )
+
+        if getattr(self, "_retry_policy", None) is not None:
+            return with_retries(_do_invoke, policy=self._retry_policy)
+        return _do_invoke()
 
 
 class AnthropicClient(BaseLLMClient):
@@ -69,6 +91,12 @@ class AnthropicClient(BaseLLMClient):
         for key in _PASSTHROUGH_KWARGS:
             if key in self.kwargs:
                 llm_kwargs[key] = self.kwargs[key]
+
+        # Reliability primitives — passed to our subclass __init__, not ChatAnthropic.
+        if "retry_policy" in self.kwargs:
+            llm_kwargs["retry_policy"] = self.kwargs["retry_policy"]
+        if "context_budgeter" in self.kwargs:
+            llm_kwargs["context_budgeter"] = self.kwargs["context_budgeter"]
 
         return NormalizedChatAnthropic(**llm_kwargs)
 
